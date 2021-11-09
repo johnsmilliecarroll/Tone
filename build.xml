@@ -1,0 +1,39 @@
+<project name="Tone" default="compile" basedir=".">
+  <!-- set global properties for this build -->
+  <property name="src" location="src"/>
+  <property name="dist" location="dist"/>
+  <presetdef name="javac">
+    <javac includeantruntime="false" />
+  </presetdef>
+
+  <target name="init">
+    <mkdir dir="${dist}"/>
+    <mkdir dir="${dist}/classes"/>
+  </target>
+
+  <target name="compile" depends="init">
+    <javac srcdir="${src}" debug="true" destdir="${dist}/classes"/>
+  </target>
+
+  <target name="jar" depends="init,compile">
+    <jar destfile="${dist}/${ant.project.name}.jar" basedir="${dist}/classes">
+      <manifest>
+        <attribute name="Main-Class" value="${ant.project.name}"/>
+      </manifest>
+    </jar>
+  </target>
+
+  <target name="songarg" unless="song">
+    <property name="song" value="${basedir}/MaryLamb.txt"/>
+  </target>
+
+  <target name="run" depends="jar,songarg">
+    <java jar="${dist}/${ant.project.name}.jar" fork="true">
+      <arg value="${song}"/>
+    </java>
+  </target>
+
+  <target name="clean">
+    <delete dir="${dist}"/>
+  </target>
+</project>
