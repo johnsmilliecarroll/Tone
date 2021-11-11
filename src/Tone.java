@@ -10,58 +10,97 @@ import javax.sound.sampled.AudioSystem;
 import javax.sound.sampled.LineUnavailableException;
 import javax.sound.sampled.SourceDataLine;
 
+/**
+ * This is our main class, from which we read in a file which includes the notes
+ * needed to play a specific song.
+ */
 public class Tone {
-	// stack over flow for buffer refresher
-	// Mary had a little lamb
-	// ant -Dsong=Mary.txt run
 	private static List<BellNote> song = new ArrayList<BellNote>();
 	private int NUM_MEMBERS = 18; // number of possible notes
 	Thread[] members = new Thread[NUM_MEMBERS];
+	private static int linecount;
+	private static String fileName;
+	private static boolean isReady;
 	// private final BlockMutex m = new BlockMutex();
 
+	/**
+	 * This is where we load in the file, making a quick check to make sure it's
+	 * valid. We call loadSong() and playSong().
+	 */
 	public static void main(String[] args) throws Exception {
-		song = loadSong(args[0]);
-		final AudioFormat af = new AudioFormat(Note.SAMPLE_RATE, 8, 1, true, false);
-		Tone t = new Tone(af);
-		t.playSong(song);
+		fileName = args[0];
+		File myFile = new File(fileName);
+		if (!myFile.exists()) { // Does the file exist?
+			System.err.println(fileName + " does not exist.");
+			System.exit(0);
+		} else { // Load and play the song
+			song = loadSong(fileName);
+			final AudioFormat af = new AudioFormat(Note.SAMPLE_RATE, 8, 1, true, false);
+			Tone t = new Tone(af);
+			t.playSong(song);
+		}
 	}
 
+	/**
+	 * Here we read in the lines of the file and make various checks to ensure the
+	 * file is in the right format. We store the elements of each line as a list of
+	 * Bellnotes.
+	 */
 	private static List<BellNote> loadSong(String filename) {
 		List<BellNote> notes = new ArrayList<>();
 		final File file = new File(filename);
 		BufferedReader br = null;
-		if (file.exists()) {
-			try {
-				br = new BufferedReader(new FileReader(filename));
-				String line = br.readLine();
-
-				while (line != null) {
-					String[] items = line.split(" ");
+		try { //let's read the file
+			br = new BufferedReader(new FileReader(filename));
+			String line = br.readLine();
+			linecount = 0;
+			while (line != null) {
+				linecount++;
+				String[] items = line.split(" "); //split on whitespace
+				try {
 					BellNote thismove = new BellNote(parseNote(items[0]), parseInt(items[1]));
 					notes.add(thismove);
 					line = br.readLine();
+				} catch (ArrayIndexOutOfBoundsException e) {
+					// If there are missing elements in a line, throw an error and terminate.
+					isReady = false;
+					System.err.println("Missing note length value at line " + linecount + " of the file " + fileName
+							+ ". Please use this format: Note[space]Length. i.e. E4 2");
+					System.exit(0);
 				}
-			} catch (IOException e) {
-				// TODO Auto-generated catch block
-				e.printStackTrace();
-			} finally {
+				// If they have something after the note and the length, we will remind them
+				// that it's being ignored.
 				try {
-					br.close();
-				} catch (IOException e) {
-					// TODO Auto-generated catch block
-					e.printStackTrace();
+					String testline = items[2];
+					System.out.println("Everything after and including the element '" + testline + "' on line "
+							+ linecount + "  was ignored. Please use this space for comments and notes.");
+				} catch (ArrayIndexOutOfBoundsException e) {
+					// Nothing needs to be done
 				}
 			}
+			if (linecount == 0) {
+				System.err.println("Unable to read lines. " + fileName + " is probably empty.");
+				System.exit(0);
+			}
+		} catch (IOException e) {
+			e.printStackTrace();
+		} finally {
+			try {
+				br.close(); //Close our Buffered Reader like a good little boy scout
+			} catch (IOException e) {
+				e.printStackTrace();
+			}
 		}
+		isReady = true;
 		return notes;
 	}
 
-	private static NoteLength parseInt(String num) {
-		if (num == null) {
-			return null;
-		}
-
-		switch (num.toUpperCase().trim()) {
+	/**
+	 * A function for converting a string from our file into a value of the enum
+	 * NoteLength.
+	 */
+	private static NoteLength parseInt(String n) {
+		switch (n.toUpperCase().trim()) {
 		case "1":
 			return NoteLength.WHOLE;
 
@@ -74,18 +113,36 @@ public class Tone {
 		case "8":
 			return NoteLength.EIGTH;
 
-		default:
+		default: //if its not one of the above, that's a problem
+			isReady = false;
+			System.err.println("Incorrect Note Length syntax at line " + linecount + " of the file " + fileName + ". '"
+					+ n + "' is not a valid length.");
+			System.exit(0);
 			return null;
 		}
 	}
 
-	private static Note parseNote(String symbol) {
-		// If you give me garbage, I'll give it back
-		if (symbol == null) {
-			return null;
-		} else {
-			return Note.valueOf(symbol.toUpperCase().trim());
+	/**
+	 * A function for converting a string from our file into a value of the enum
+	 * Note.
+	 */
+	private static Note parseNote(String n) {
+		Note mynote = null;
+		try {
+			mynote = Note.valueOf(n.toUpperCase().trim());
+		} catch (IllegalArgumentException e) {
+			isReady = false;
+			if (n.isEmpty()) {
+				System.err.println("Line " + linecount + " of the file " + fileName
+						+ " is empty. Please don't have empty lines between notes.");
+			} else {
+				System.err.println("Incorrect Note syntax at line " + linecount + " of the file " + fileName
+						+ ". The token '" + n + "' is unrecognized.");
+			}
+			System.exit(0);
 		}
+
+		return mynote;
 	}
 
 	private final AudioFormat af;
@@ -94,29 +151,43 @@ public class Tone {
 		this.af = af;
 	}
 
+	/**
+	 * In this function we create our member threads, calling from the Member class.
+	 * Next, we give them each a Source Data line and a BellNote, and then stop them
+	 * after all the notes have been played.
+	 */
 	void playSong(List<BellNote> song) throws LineUnavailableException {
 		try (final SourceDataLine line = AudioSystem.getSourceDataLine(af)) {
-			line.open();
-			line.start();
+			if (isReady) {
+				line.open();
+				line.start();
+				//Create Member threads
+				Member[] Members = new Member[Note.values().length];
+				for (Note n : Note.values()) {
+					Members[n.ordinal()] = new Member(n);
+				}
+				System.out.println("Playing " + fileName); //Begin playing notes.
+				for (BellNote bn : song) {
+					// playNote(line, bn);
+					Member m = Members[bn.note.ordinal()];
+					m.giveTurn(line, bn);
 
-			Member[] Members = new Member[Note.values().length];
-			for (Note n : Note.values()) {
-				Members[n.ordinal()] = new Member(n);
+				}
+				for (Member m : Members) { // Stop our members now that everything is done.
+					m.stopMember();
+				}
+				line.drain();
 			}
-			for (BellNote bn : song) {
-				// playNote(line, bn);
-				Member m = Members[bn.note.ordinal()];
-				m.giveTurn(line, bn);
 
-			}
-			for (Member m : Members) {
-				m.stopMember();
-			}
-			line.drain();
 		}
 
 	}
 
+	/**
+	 * This function plays a note of a song, and takes a Source Data Line and a
+	 * BellNote as arguments. It's able to write audio bytes to the line to play our
+	 * note.
+	 */
 	public static void playNote(SourceDataLine line, BellNote bn) {
 		final int ms = Math.min(bn.length.timeMs(), Note.MEASURE_LENGTH_SEC * 1000);
 		final int length = Note.SAMPLE_RATE * ms / 1000;
@@ -126,6 +197,9 @@ public class Tone {
 
 }
 
+/**
+ * This class packs the note pitch and length into one datatype.
+ */
 class BellNote {
 	final Note note;
 	final NoteLength length;
@@ -136,6 +210,10 @@ class BellNote {
 	}
 }
 
+/**
+ * This enum is where all the lengths are stored and determines the time scale
+ * for each.
+ */
 enum NoteLength {
 	WHOLE(1.0f), HALF(0.5f), QUARTER(0.25f), EIGTH(0.125f);
 
@@ -150,6 +228,11 @@ enum NoteLength {
 	}
 }
 
+/**
+ * This enumerator contains all the notes that can be played as well as the
+ * complicated calculations needed in order to get accurate pitches most
+ * commonly used in music theory
+ */
 enum Note {
 	// REST Must be the first 'Note'
 	REST, A4, A4S, B4, C4, C4S, D4, D4S, E4, F4, F4S, G4, G4S, A5, A5S, B5, C5, C5S, D5;
@@ -181,6 +264,9 @@ enum Note {
 		}
 	}
 
+	/**
+	 * Returns a sine wave
+	 */
 	public byte[] sample() {
 		return sinSample;
 	}
